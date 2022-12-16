@@ -130,16 +130,16 @@ const darkCodeTheme = require("prism-react-renderer/themes/dracula");
 const config = {
   title: "SavvyLite",
   tagline: "Documentation",
-  url: "https://your-docusaurus-test-site.com",
-  baseUrl: "/",
+  url: "https://sviosdi.github.io",
+  baseUrl: "/svl-doc/",
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
   favicon: "img/favicon.svg",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: "SavvyLite", // Usually your GitHub org/user name.
-  projectName: "Signaux&Slots", // Usually your repo name.
+  organizationName: "sviosdi", // Usually your GitHub org/user name.
+  projectName: "svl-doc", // Usually your repo name.
 
   // Even if you don't use internalization, you can use this field to set useful
   // metadata like html lang. For example, if your site is Chinese, you may want
@@ -158,8 +158,7 @@ const config = {
           sidebarPath: require.resolve("./sidebars.js"),
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          /*editUrl:
-            "https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/",*/
+          editUrl: "https://github.com/sviosdi/svl-doc/tree/main/",
         },
         blog: {
           showReadingTime: true,

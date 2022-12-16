@@ -197,7 +197,7 @@ const config = {
           },
           { to: "/blog", label: "Blog", position: "left" },
           {
-            href: "https://github.com/facebook/docusaurus",
+            href: "https://gitlab.com/sviosdi/signals_slots",
             label: "GitHub",
             position: "right",
           },

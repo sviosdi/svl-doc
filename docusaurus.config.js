@@ -181,7 +181,11 @@ const config = {
         //  theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
       },
-      disableSwitch: true,
+      colorMode: {
+        defaultMode: "light",
+        disableSwitch: true,
+        respectPrefersColorScheme: true,
+      },
       navbar: {
         title: "SavvyLite",
         logo: {

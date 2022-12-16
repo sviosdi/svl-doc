@@ -1,5 +1,5 @@
 ---
-slug: C'est parti!
+slug: start
 title: Lancement
 authors: [sviosdi]
 tags: [sl, signal, slot]

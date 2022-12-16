@@ -1,0 +1,446 @@
+---
+description: Signaux & Slots
+title: "Signaux & Slots"
+sidebar_position: 2
+keywords:
+  - signal
+  - slot
+  - signaux
+  - slots
+sidebar_label: Signaux & Slots
+sidebar_class_name: dev-icon
+---
+
+import Dev from "@site/src/components/Dev";
+
+# Signaux & slots <Dev/>
+
+```cpp
+#include "sas/Signal.hpp"
+#include "sas/Slot.hpp"
+```
+
+## Quel type pour représenter un slot ?
+
+Les classes `Signal` et `Slot` sont des patrons de classe dont les paramètres sont une liste variable correspondant aux paramètres du signal.
+La classe Signal dérive de la classe `SaSSignal` qui n'est pas un patron de classe. (On expliquera pourquoi plus loin.)
+
+Chaque signal contient un conteneur (à déterminer) `connectedSlots` des slots de type `<Slot<Params...>` qui lui sont connectés. A l'émission du signal par l'opérateur
+`Signal::operator()(Params...)`, tous les slots du conteneur `connectedSlots` sont exécutés par l'opérateur : `Slot::operator()(Params...)`.
+
+Seuls les paramètres d'un signal donné déterminent les fonctions ou méthodes auxquelles il peut être connecté. Le conteneur `connectedSlots` aura donc pour contrainte de
+devoir stocker des objets qui représentent les slots de type `<Slot<Params...>`. Or ceux-ci, même s'ils ont en commun le type de leur paramètres, peuvent être très différents par le
+fait qu'ils soient des fonctions ou des méthodes, et s'ils sont des méthodes d'un objet, cet objet peut être l'instance de classes différentes. Le type des valeurs de
+retour peuvent aussi différer.
+
+Notre type `Slot<Params...>` doit pouvoir représenter ces slots finalement très différents, qui n'ont que le type de leurs paramètres en commun, conforme à ceux du
+signal. Pour rendre ceci possible, un slot doit donc perdre lors de sa création le fait d'être une fonction ou une méthode. Il doit aussi oublier la signature de
+la fonction ou de la méthode, le type de la valeur de retour et oublier le type de l'objet connecté. Mais il faudra pouvoir retrouver toutes ses caractéristiques
+de type _[fonction | méthode]/signature/objet connecté_ lors de l'exécution du slot.
+
+## Anonymiser l'objet à connecter
+
+La classe `Slot` dispose d'un constructeur de _slot pour méthode_ ou d'un constructeur de _slot pour fonction_. Leur rôle étant d'enregistrer les pointeurs vers
+l'_objet&méthode_ ou vers la _fonction_ de manière _anonymisée_ (anonymiser = rendre anonyme de manière réversible), en leur faisant perdre leur type pour devenir
+des pointeurs `void*` ou `char*`. Dans le cas d'un _slot méthode_, on pourrait enregister de manière anonymisé l'objet connecté en enregistrant son adresse convertie
+en `void*` dans un membre `obj_anonyme`. (qui prendrait la valeur `nullptr` dans le cas d'un _slot fonction_.)
+
+```cpp
+void* obj_anonyme{reinterpret_cast<void*>(obj_appele)};             // anonymisation
+OBJ_APPELE* ptr_obj{reinterpret_cast<OBJ_APPELE*>(obj_anonyme)};    // désanonymisation
+(*ptr_obj).methode()    // ok - méthode utilisable  ptr_obj == obj_appele
+ptr_obj->methode()      // ok
+```
+
+## Anonymiser la méthode à connecter
+
+Pour ce qui est d'enregistrer une fonction | méthode, c'est moins simple. Pour bien comprendre ce qu'il va falloir faire, observons l'exemple suivant d'une classe `A` disposant
+d'une méthode `A::meth(int)`. Le code suivant fonctionne alors correctement :
+
+```cpp
+A a;
+// PM = type "pointeur vers une méthode de A" (retournant void et de paramètre int).
+using PM = void(A::*)(int);
+// la variable m contient l'adresse de la méthode meth,
+// pm est un pointeur vers A::meth(int)
+PM pm = &A::meth;
+// appel de la méthode en déréférençant le pointeur de méthode.
+(a.*pm)(7);
+```
+
+On pourrait être tenté, comme pour l'objet, de convertir le pointeur de méthode en void\* :
+
+```cpp
+void* m_an = reinterpret_cast<void*>(pm) //Non!
+     // conversion d'un pointeur de fonction en void* non autorisée en C++
+```
+
+Mais C++ n'autorise pas la conversion d'un pointeur de fonction en pointeur de void. Il va falloir donc passer par un pointeur vers le pointeur de méthode :
+
+```cpp showLineNumbers
+void* m_an = reinterpret_cast<void*>(&pm);
+PM pm = *reinterpret_cast<PM*>(m_an);    // using PM = void(A::*)(int);
+(a.*pm)(12);
+```
+
+On obtient donc l'enchaînement suivant de déréférencements de pointeurs: `m_an → m → A::meth`.
+
+1. `m_an` devient un pointeur "anonymisé" vers le pointeur `pm`. Il pointe vers la zone mémoire contenant `pm` qui pointe à son tour vers la méthode. Mais `pm` est
+   interprété en pointeur de void et non plus en pointeur de méthode.
+
+2. ici on désanonymise le pointeur vers pm. Il n'est plus un pointeur vers void mais un pointeur de PM autrement dit un pointeur vers un pointeur de méthode.
+   Une fois déréférencé, pm devient bien un pointeur de méthode.
+
+3. appel de la méthode, après déréférencement du pointeur de méthode.
+
+Étudions le cas du constructeur d'un _slot Methode_. On notera `RT` le type de la valeur retournée, `OBJ_APPELE` le type de l'objet connectée et `PARAMS...`
+représente le type des paramètres. Il faut passer comme paramètres du constructeur un pointeur vers l'objet connecté et un pointeur vers la méthode de cet objet:
+
+```cpp
+OBJ_APPELE* obj_appele;
+RT(OBJ_APPELE::*methode)(Params...);
+```
+
+On a vu précédemment que l'anonymisation du pointeur de l'objet appelé dans le membre `obj_anonyme` se fait par à l'initialisation par :
+
+```cpp
+obj_anonyme{reinterpret_cast<void*>(obj_appele)}
+```
+
+Maintenant en prenant un pointeur vers le pointeur de méthode, on devrait pouvoir être tenté à nouveau de le convertir en `void*` par :
+
+```cpp
+void* ptr_methode;
+ptr_methode{reinterpret_cast<void*>(&pm)};
+```
+
+où `ptr_methode` serait un membre de Slot de type `void*`.
+Et effectivement on pourrait dans le constructeur désanonymiser la méthode et effectuer (dans le cas où par exemple la méthode a pour paramètre un `int`)
+son appel par le code suivant :
+
+```cpp
+using PM = RT(OBJ_APPELE::*)(Params...);
+PM pm = *reinterpret_cast<PM*>(ptr_methode);
+(reinterpret_cast<OBJ_APPELE*>(obj_anonyme)->*pm)(84); // OK seulement dans le constructeur
+```
+
+:::caution
+Et pourtant ce code qui devrait s'exécuter dans un constructeur de `Slot` ne marcherait pas en dehors du constructeur. Mais pourquoi donc ?
+:::
+
+Car l'enregistrement par : `ptr_methode{reinterpret_cast<void*>(&pm)}` n'est pas correct. On a en effet cet enchaînement de pointeurs:
+`ptr_methode → pm → OBJ_APPELE::methode`<br/>
+
+![pb de variable locale](/img/sas.png)
+
+Si à ce stade l'emplacement mémoire occupé par `pm` pointe correctement vers la méthode de l'objet, cet emplacement mémoire n'est qu'une **variable locale**
+passée en paramètre au constructeur. Et par conséquent à la sortie du constructeur, le contenu de cet emplacement est perdu, or c'est vers lui que pointe
+`ptr_methode`, qui devient un pointeur vers une zone qui ne contient plus le pointeur vers la méthode de l'objet!<br/> La solution est donc d'allouer un
+espace mémoire `char*` pour `ptr_methode` et d'y recopier octet par octet le contenu de l'emplacement mémoire occupé par la variable `pm`.<br/>
+
+:::caution
+L'espace à allouer à `ptr_methode` est `sizeof(PM)`, autrement dit la taille d'un pointeur de méthode. On supposera que cette taille est fixe, indépendante de
+la classe ou encore de la signature de la méthode.
+
+```cpp
+constexpr short  PTR_METH_SIZE = 16;
+```
+
+Avant d'utiliser la classe Signal, il est nécessaire d'effecter les tests sur la plateforme cible et d'ajuster cette valeur si nécessaire.
+:::
+
+## Rôle de la classe `SlotKey`
+
+Revenons à la classe Signal. Pour synthétiser, on sait que chaque signal contient un conteneur `connectedSlots` des Slots qui lui sont connectés et que l'exécution
+du signal aura pour effect d'appeler et d'exécuter chacun des slots connectés. Lors de la connexion d'un slot il faut ajouter le slot au conteneur
+de slots mais il faudra aussi vérifier que le slot n'est pas déjà connecté (déjà existant dans `connectedSlots`) sans quoi le slot risque de s'exécuter plusieurs
+fois à l'émission du signal. Il faudra aussi pouvoir retrouver rapidement un slot dans le conteneur pour le retirer lors d'une déconnexion. On voit apparaître ici
+la nécessité de pouvoir _comparer_ des slots, au moins en égalité. Si on peut en plus leur associer une relation d'ordre on pourra alors plus rapidement accéder à un slot.
+Avec une relation d'ordre appropriée sur les slots on pourra utiliser un `map` qui associera une fonction/méthode connectée au Slot qui lui correspond. C'est là qu'intervient
+la classe `SlotKey`. Tout commence au niveau de la connexion :
+
+- la fonction | objet&méthode passés lors de la connexion serviront à construire le `SlotKey` correspondant dont le rôle sera de les enregistrer en les anonymisant.
+- Ce `SlotKey` ainsi créé servira de clé dans le `map` avec pour valeur associée un `Slot` dont le rôle sera de pouvoir désanonymiser le slot et de pouvoir effectuer son appel.
+
+La classe `SlotKey` contient les membres:
+
+```cpp
+void* obj_anonyme;
+union {
+  char* ptr_methode{nullptr};
+  const void* ptr_function;
+};
+```
+
+Et en plus du constructeur par défaut qui initialise ces membres à `nullptr`, il y a deux constructeurs selon qu'on connecte une fonction ou une méthode:
+
+```cpp
+SlotKey(void* obj, char* meth) : obj_anonyme{obj} {
+  char* tmp = meth;
+  ptr_methode = new char[PTR_METH_SIZE];
+  for(int i = 0; i < PTR_METH_SIZE; i++)
+    ptr_methode[i] = tmp[i];
+}
+
+SlotKey(void* func) : obj_anonyme{nullptr}, ptr_function{func} {
+}
+```
+
+Pour comparer les `SlotKeys` on comparera directement les adresses de leurs membres. Si `obj_anonyme == nullptr` il s'agira d'un `SlotKeys` _fonction_, sinon c'est un `SlotKeys` _méthode_.
+La relation d'ordre sera définie ainsi:
+
+- S'il s'agit de deux `SlotKeys` _fonction_ : on compare directement leurs adresses.
+- S'il s'agit d'un `SlotKeys` _fonction_ et d'un `SlotKeys` _méthode_ : on considéra que `SlotKeys` _fonction_ < `SlotKeys` _méthode_.
+- S'il s'agit de deux `SlotKeys` _méthode_ : il seront dans l'ordre des objets `obj_anonyme` si ceux-ci sont différents, et s'il sont égaux
+  ils seront dans l'ordre des méthodes `ptr_methode`. Mais dans ce dernier cas, on fera attention à ne pas comparer directement les valeurs de `ptr_methode`, mais les valeurs
+  vers lesquelles elles pointent en les déréférençant.
+
+On fournira à la classe SlotKey un constructeur par copie, un destructeur et fournira les opérateurs `friend` de comparaison, nécessaires pour l'utilisation du `map`.
+On peut maintenant définir notre conteneur de slots dans la classe `Signal` :
+
+```cpp
+std::map<SlotKey, Slot<Params...>> connectedSlots;
+```
+
+Il reste à étudier maintenant comment est construit un slot et comment s'effectue son appel.
+
+## Construction des slots
+
+```cpp
+template<typename... Params>
+class Slot {
+public:
+    Slot() {}
+    Slot(void(*fct_appel)(const SlotKey&, Params...)) : appel{fct_appel} {
+    }
+
+    void operator()(const SlotKey& key, Params... params){
+        appel(key, params...);
+    }
+
+    bool operator!=(const Slot& other) {
+        return appel != other.appel;
+    }
+
+    void (*appel)(const SlotKey&, Params...);
+
+};
+```
+
+Comme expliqué auparavant, le patron de la classe `Slot` ne doit dépendre que du type des paramètres. Les autres types nécessaires `RT` et `OBJ_APPELE` ne devant pas
+intervenir dans cette classe. Le constructeur de `Slot` reçoit en paramètre et l'enregistre un pointeur vers une fonction` appel(...)` qui est une fonction `static` d'une sous classe,
+cette dernière pouvant faire intervenir les autres types. Cette fonction par l'intermédiaire des paramètres qu'elle reçoit à l'exécution du `Slot` sera capable de
+désanonymiser le slot et d'effectuer son appel. Observons le cas d'un _slot méthode_ :
+
+```cpp
+template<typename OBJ_APPELE, typename RT, typename... Params>
+class SlotMethode : public Slot<Params...> {
+public:
+    SlotMethode() : Slot<Params...>(&appel) {
+    }
+
+    static void appel(const SlotKey& key, Params... params) {
+        using TYPE_PTR_METHODE = RT(OBJ_APPELE::*)(Params... params);
+        OBJ_APPELE* objet_appele  =   reinterpret_cast<OBJ_APPELE*>(key.obj_anonyme);
+        TYPE_PTR_METHODE methode  = *(reinterpret_cast<TYPE_PTR_METHODE*>(key.ptr_methode));
+        (objet_appele->*methode) (params...);
+    }
+
+};
+```
+
+Le constructeur n'a pas de paramètre, mais il passe à la classe de base `Slot` le pointeur vers sa fonction `static` `appel(...`). Lorsque le slot est
+appelé, cette fonction est exécutée, et comme son premier paramètre est un `SlotKey` qui comporte en lui toutes les données anonymisées nécessaires
+pour retrouver le type du slot, il peut le désanonymiser puis utiliser les paramètres passés par le second paramètre pour effectuer l'appel définitif de la méthode
+désanonymisée sur l'objet désanonymisé.
+
+## Exécution des slots
+
+La magie opère : nos `SlotKey`s ont tous le même type, nos `Slot`s ont tous le même type, on peut ainsi mapper l'un à l'autre dans un
+`std::map<SlotKey, Slot<Params...>>` et à l'émission du signal il suffira de parcourir les valeurs du `map` pour effectuer tous les appels nécessaires :
+c'est le rôle de l'opérateur `()` de la classe Signal :
+
+```cpp
+void operator()(Params... params) {
+    for(auto& [key, value] : connectedSlots) {
+        Slot<Params...>& slot = value;
+        slot(key, params...);
+    }
+}
+```
+
+## Сonnexion d'un signal à une méthode
+
+Observons maintenant plus précisément le fonctionnement d'une connexion d'un signal à une méthode :
+
+```cpp
+template <typename OBJ_APPELE, typename RT>
+void connect(OBJ_APPELE * obj_appele, RT(OBJ_APPELE::* methode )(Params...)) {
+    SlotMethode<OBJ_APPELE, RT, Params...> slot;
+    SlotKey key(reinterpret_cast<void*>(obj_appele), reinterpret_cast<char*>(&methode));
+    connectedSlots[key] = slot;
+    if(std::is_base_of<Object, OBJ_APPELE>::value){
+         ((Object*)obj_appele)->addSignal(this);
+    }
+}
+```
+
+Imaginons la connexion d'un objet `a` , instance d'une classe `A` , à une méthode `A::m(int, const char*)`.<br/>
+La connexion se fait ainsi : `a.connect(&a, &A::m)`<br/>
+On voit apparaître les quatre étapes suivantes :
+
+1. Les types OBJ_APPELE, RT et Params sont déduits des paramètres passés à la connexion.
+2. On construit un `SlotMethode` sans aucun argument : c'est une sorte de coquille vide, mais qui récupère tous les types
+   énoncés précédemment.
+3. On crée un `SlotKey` qui par contre lui va récupérer les données et les anonymiser.
+4. On enregistre dans le signal (dans son map `connectedSlots`) la paire `SlotKey` ➞ `SlotMethode`. Et on peut le faire, car un
+   `SlotMethode` **est un** `Slot` et on n'a pas besoin d'avoir de pointeurs de slots ou de références de slots pour faire fonctionner
+   le polymorphisme, car la seule méthode utilisée dans les slots est l'operateur d'appel `()` qui est une méthode propre à la classe de base.
+5. On teste ensuite si l'objet connecté est une instance d'une classe dérivée de la classe `svl::Object` et si c'est le cas, on ajoute le signal au
+   conteneur des signaux de l'objet par la méthode `Object::addSignal()` ce qui permettra, en cas de destruction de l'objet, de déconnecter _ce_
+   signal et de la même façon _tous_ les signaux qui lui sont connectés.
+
+## Déconnexion d'un signal
+
+Prenons l'exemple d'une déconnexion d'une méthode : `a->disconnect(&a, &A:m)` <br />Pour une fonction c'est très similaire en plus simple.
+
+```cpp
+template <typename OBJ_APPELE, typename RT>
+void disconnect(OBJ_APPELE* obj_appele, RT(OBJ_APPELE::* methode )(Params...)) {
+    SlotKey key(reinterpret_cast<void*>(obj_appele), reinterpret_cast<char*>(&methode));
+    connectedSlots.erase(key);
+    if(std::is_base_of<Object, OBJ_APPELE>::value){
+        ((Object*)obj_appele)->removeSignal(this);
+    }
+}
+```
+
+On reconstruit un SlotKey à partir des paramètres de déconnexion, puis il ne reste plus qu'à retirer ce SlotKey du map `connectedSlots`, ce
+qui peut s'exécuter très rapidement.
+
+On notera ici que la classe `Signal` dérive de la classe `SaSSignal`.
+
+:::note
+L'utilisateur n'a pas à se soucier de cette classe `SaSSignal`. Il devra déclarer simplement tous ses signaux en tant que `Signal<type des paramètres...>`
+:::
+
+```cpp
+class SaSSignal {
+public:
+    virtual void disconnect(void* obj_an) = 0;
+
+};
+```
+
+Cette classe n'a qu'une méthode `disconnect()` virtuelle pure _réécrite_ (`override`) dans la classe `Signal`.
+
+```cpp
+void disconnect(void* obj_an) override {
+    typename std::map<SlotKey, Slot<Params...>>::iterator itr = connectedSlots.begin();
+    while (itr != connectedSlots.end()) {
+        if (itr->first.obj_anonyme == obj_an) {
+            itr = connectedSlots.erase(itr);
+        } else {
+            ++itr;
+        }
+    }
+}
+```
+
+L'utilisateur pourra manuellement utiliser cette fonction sur un signal pour déconnecter ce signal de toutes les méthodes de l'objet passé
+en paramètre auxquelles il aurait été connecté précédemment. Cette fonction parcourt tous les clés (`SlotKey`s) du map `connectedSlots` et en retire
+toute clé (et par conséquent le `Slot` associé) comprenant un objet égal à l'objet que l'on veut déconnecter.<br/>
+Mais cette fonction a surtout son intérêt lorsqu'elle est appelée par polymorphisme à partir de la classe `SaSSignal`. Ce qui a lieu automatiquement lorsqu'un objet
+de la classe `Object` ayant été connecté à un ou plusieurs signaux est détruit. Et comme on l'a déjà fait remarquer, il est impératif de déconnecter
+tous ces signaux, sans quoi, l'émission de l'un deux **après** la destruction de l'objet conduirait à un crash ou tout au moins à un comportement indéfini.<br/>
+Et ceci est fait dans le destructeur de la classe `Object` :
+
+```cpp
+Object::~Object() {
+  for(svl::SaSSignal* signal : connectedSignals) {
+      signal->disconnect(this);
+    }
+}
+```
+
+où `connectSignals` est un vecteur de tous les signaux (`SaSSignal`s) connectés à l'objet, auquel chaque signal a été ajouté, lors de la
+connexion, par la fonction `Object::addSignal()` comme vu précédemment.
+
+```cpp
+void Object::addSignal(SaSSignal* signal) {
+        connectedSignals.push_back(signal);
+}
+```
+
+:::tip
+Pour pouvoir utiliser le polymorphisme, on utilise plus précisément des pointeurs de signaux `SaSSignal*`s :
+
+```cpp
+std::vector<SaSSignal*> connectedSignals;
+```
+
+:::
+
+Ce qui assurera dans le destructeur de l'objet, que l'appel `signal->disconnect(this);` se fera sur la méthode `disconnect()` de `Signal` et
+non celle de `SaSSignal`.
+
+![déconnexions](/img/sas2.png)
+
+On veillera à ce que :
+
+1. Un signal ne doit pouvoir être connecté qu'une seule fois à une même fonction/méthode. Toute autre connexion redondante doit être sans effect. Si le signal
+   est exécuté une fois, tout slot connecté ne doit s'exécuter qu'une seule fois.
+
+2. À la connexion d'un slot : `signal.connect(&a, &A::m)`
+
+   - Ne rien faire si le slot est déjà présent dans `connectedSlots`
+   - Si le slot se rattache à un objet dérivant de la classe `Object`:
+     - Marquer ce slot avec `isObject = true` [→ voir NOTE 1](#note_1)
+     - Ajouter le signal à `connectedSignals` **même s'il est déjà présent**. (important!) [→ voir NOTE 2](#note_2)
+   - Ajouter le slot à `connectedSlots`
+
+3. À la déconnexion d'un slot : `signal.disconnect(&a, &A::m)`
+
+   - Si le slot est bien présent dans `connectedSlots` on le retire.
+   - On retire le signal de `connectedSignals`, _une seule fois_! (important!) [→ voir NOTE 2](#note_2)
+
+4. Pour déconnecter un signal donné d'un objet `signal.disconnect(&a)` :
+
+   - Pour chaque slot de `connectedSlots`: si l'objet du slot correspond à l'objet à déconnecter: supprimer le slot
+   - Si l'objet dérive de `Objet`, parcourir les signaux de `connectedSignals`, dès le premier signal correspondant au signal à déconnecter : retirer **chaque occurence** de ce signal.
+
+5. Pour déconnecter un signal de tous ses slots `signal.disconnectAll()` :
+
+   - Pour chacun des slots de `connectedSlots` : Si le slot dérive de Object alors pour l'objet correspondant retirer le signal de `connectedSignals` _une seule fois_.
+   - Purger `connectedSlots`
+
+6. À la destruction d'un objet qui dérive de la classe Object : appliquer le point 7.
+
+7. Si un objet derive de la classe Objet pour le déconnecter de tous les signaux qui lui sont connectés : `a.deleteConnectedSignals()`
+   - Pour chacun des signaux dans `connectedSignals` : déconnecter l'objet du signal en appliquant 4.
+
+#### {#note_1}
+
+:::note note 2
+Pour ce dernier point, il n'est pas nécessaire de
+:::
+
+:::caution
+Un problème survient dans le cas où un signal est un membre d'une classe et qu'il est connecté à une méthode cette même classe. Observons plus bas
+pourquoi et comment y remédier.
+:::
+Considérons une instance d'une classe `Counter` ayant pour membre un signal `valueChanged` connecté à une méthode `meth_1` de cette même classe `Counter`.
+D'autres signaux globaux ou membres d'instances d'autres classes sont connectés à certaines de ces méthodes : `meth_1` ou `meth_2`. A la destruction du Counter,
+celui-ci doit informer tous les signaux qui sont connectés à lui : "Je vais mourir, il ne faut plus m'appeler...!", autrement dit il doit leur demander de se déconnecter
+de lui. Et cela se fait de la manière suivante :
+
+- Le destructeur de la classe `Counter` est appelé puis celui de la classe de base `Object`.
+- Dans le destructeur de la classe de base `Object` la fonction `deleteConnectedSignals()` va passer en revue les pointeurs de signaux (`SaSSignal*`) et demander à chacun
+  d'eux de se déconnecter de lui comme décrit plus haut au point 7.
+
+  ![destruction d'un Object](/img/destructeurs.png)
+
+- Pour les signaux `1`, `2` et `3` il n'y a pas de problème, mais pour le signal `valueChanged` la fonction `deleteConnectedSignals()` va demander à `valueChanged` de se déconnecter.
+  Or le destructeur de la classe `Counter` aura déjà été effectué et donc `valueChanged` n'existe plus!! et le programme plante... Par conséquent il est indispensable de
+  déconnecter le signal `valueChanged` de tous les objets auxquels il est connecté (par `valueChanged.disconnectAll()`) ce qui préviendra le problème évoqué. De plus, si l'objet
+  connecté dérive de la classe `Object` il ne référencera plus le signal valudeChanged dans son propre conteneur `connectedSignals`

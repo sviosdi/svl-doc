@@ -1,0 +1,163 @@
+---
+sidebar_position: 1
+---
+
+# Signal
+
+```cpp
+#include "sas/Signal.hpp"
+```
+
+Un signal est une fonction particulière qui peut être connectée à différentes fonctions ou méthodes d'un objet (instance d'une classe). Lorsque cette fonction
+est exécutée, on dit alors que le signal est _émis_, toutes les fonctions/méthodes qui lui sont connectées, nommées traditionnellement _slots_, seront appelées
+et exécutées avec les paramètres transmis par le signal.
+
+Un signal `sig` prenant des paramètres `params` peut ainsi être connecté à toute fonction ou toute méthode d'une classe, à condition que cette fonction/méthode
+prenne des paramètres de types correspondants aux types des paramètres `params`. Lorsque le signal est _émis_ toutes les fonctions ou méthodes connectées
+sont alors exécutées avec les paramètres _transmis_ par le signal.
+
+Le constructeur d'un signal n'a pas de paramètres. Il faut par contre définir les types
+des paramètres du signal comme une liste de paramètres du patron de la classe `Signal`.
+
+Par exemple, le signal :
+
+```cpp
+Signal<int> sig1;
+```
+
+peut être connecté à une fonction ou une méthode dont le paramètre est un `int` :
+
+```cpp
+void add(int)                // slot fonction
+void setErrorMessage(int)    // slot fonction
+void A::seek(int)            // slot méthode d'une classe A
+```
+
+:::note
+Les fonctions/méthodes jouant le rôle de slots peuvent retourner une valeur, cependant cette valeur ne sera pas exploitable lors de l'émission du signal.
+Pour cette raison les slots retourneront généralement `void`.
+:::
+
+La connexion se fait alors par la méthode `connect()` du signal :
+
+```cpp
+sig1.connect(add);
+sig1.connect(getErrorMessage);
+sig1.connect(&a, &A::seek);       // a étant une instance d'une classe A
+```
+
+Au déclenchement du signal par :
+
+```cpp
+sig1(51);
+```
+
+les fonctions ou méthode suivantes sont alors exécutées :
+
+```cpp
+add(51)
+setErrorMessage(51)
+a.seek(51)
+```
+
+Un signal peut être déconnecté d'une fonction ou d'une méthode par la méthode `disconnect()` du signal.
+
+:::caution
+Si un objet connecté est détruit, la méthode connectée sera tout de même appelée à l'émission du signal. Ceci conduit à un comportement imprévisible
+(crash ou méthode d'un objet qui n'existe plus qui continue a être appelée...). Avant la destruction de l'objet il est donc impératif de déconnecter tous les signaux
+qui lui sont connectés. Cela impose de se souvenir de tous les signaux connectés à cet objet pour pouvoir les déconnecter.
+Si on sait lors de la conception d'une classe, que les instances de cette classe seront amenées à avoir des méthodes connectées à des signaux, c-à-d jouant
+le rôle de _slots_, on pourra alors de manière plus efficace, et de préférence, faire dériver cette classe de la classe `NsObject`. Tous les signaux connectés seront alors
+automatiquement enregistrés par l'objet lors de leur connexion et automatiquement déconnectés lors de la destruction de l'objet.
+:::
+
+:::info
+La notion de `slot` ( fichier `Slot.hpp` ) n'a d'intérêt que pour le développeur de Svl. Elle est invisible lors de l'utilisation des signaux et le
+fichier `Slot.hpp` n'a pas a être inclus par l'utilisateur. Pour l'utilisateur un slot est une fonction ou méthode quelconque.
+:::
+
+## **En synthèse** :
+
+## Connexion-émission-déconnexion d'un signal
+
+### à une fonction
+
+```cpp
+void f(int){ .... }
+svl::Signal<int>  sig;
+sig.connect(&f);
+sig.connect(f); // également correct
+sig(57); // émission du signal
+sig.disconnect(f);
+```
+
+### à une méthode
+
+```cpp
+class A {
+public:
+    A(...) { ...}
+    void m(int, std::string) {
+        ....
+    }
+}
+
+A a(...);
+svl::Signal<int, std::string>  sig;
+sig.connect(&a, &A::m);
+sig(57, "ok"); //  émission du signal
+sig.disconnect(&a, &A::m);
+// la ligne suivante déconnecte m mais aussi toute autre méthode de l'objet
+// qui aurait été éventuellement aussi connecté au signal. Ce n'est pas nécessairement
+// ce que l'on veut. De plus, même s'il n'y a qu'une méthode connectée, c'est moins
+// efficace (rapide) que la ligne précédente.
+sig.disconnect(&a);
+```
+
+## Déconnecter tout un objet d'un signal.
+
+```cpp
+public:
+    A(...) { ...}
+    void m1(int) {
+        ....
+    }
+    void m2(int) {
+        ...
+    }
+}
+
+A a(...);
+svl::Signal<int>  sig;
+sig.connect(&a, &A::m1);
+sig.connect(&a, &A::m2);
+sig.disconnect(&a); // déconnecte m1 et m2
+```
+
+## Déconnecter tous les slots d'un signal
+
+```cpp
+class A {
+public:
+    A() { ...}
+    void m() {
+        ....
+    }
+}
+
+void f() {}
+int g() {}
+
+A a;
+Signal<> sig;
+sig.connect(&a; &A::m);
+sig.connect(&f);
+sig.connect(&g);
+sig.disconnectAll(); // déconnecte toutes les connexions précédentes
+
+```
+
+## Déconnecter tous les signaux connectés à un objet.
+
+Il faut le faire manuellement, à moins que l'objet en question ne dérive de la classe `Object`. Dans ce cas, à la destruction de 
+l'objet, tous les signaux qui lui sont connectés seront déconnectés automatiquement.

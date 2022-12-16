@@ -1,0 +1,8 @@
+{
+    "label": "Signaux & Slots",
+    "position": 2,
+    "link": {
+        "type": "generated-index",
+        "description": "Description et explications de l'implémentation d'un mécanisme de signaux & slots."
+    }
+}

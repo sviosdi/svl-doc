@@ -158,10 +158,10 @@ const config = {
           sidebarPath: require.resolve("./sidebars.js"),
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          editUrl: "https://github.com/sviosdi/svl-doc/tree/main/",
+          /*editUrl: "https://github.com/sviosdi/svl-doc/tree/main/",*/
         },
         blog: {
-          showReadingTime: true,
+          showReadingTime: false,
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           /*editUrl:
@@ -181,6 +181,7 @@ const config = {
         //  theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
       },
+      disableSwitch: true,
       navbar: {
         title: "SavvyLite",
         logo: {
@@ -197,7 +198,7 @@ const config = {
           { to: "/blog", label: "Blog", position: "left" },
           {
             href: "https://gitlab.com/sviosdi/signals_slots",
-            label: "GitHub",
+            label: "GitLab",
             position: "right",
           },
         ],

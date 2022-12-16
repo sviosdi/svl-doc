@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunksvl_doc=self.webpackChunksvl_doc||[]).push([[274],{1126:s=>{s.exports=JSON.parse('{"permalink":"/svl-doc/blog/tags/sl","page":1,"postsPerPage":10,"totalPages":1,"totalCount":1,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);

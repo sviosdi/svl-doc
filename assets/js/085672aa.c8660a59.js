@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunksvl_doc=self.webpackChunksvl_doc||[]).push([[406],{6235:s=>{s.exports=JSON.parse('{"label":"slot","permalink":"/svl-doc/blog/tags/slot","allTagsPath":"/svl-doc/blog/tags","count":1}')}}]);

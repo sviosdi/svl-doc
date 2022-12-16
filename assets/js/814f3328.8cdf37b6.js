@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunksvl_doc=self.webpackChunksvl_doc||[]).push([[535],{5641:e=>{e.exports=JSON.parse('{"title":"Recent posts","items":[{"title":"Lancement","permalink":"/svl-doc/blog/start"}]}')}}]);

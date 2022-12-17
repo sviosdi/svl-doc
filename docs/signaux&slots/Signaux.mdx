@@ -78,7 +78,7 @@ fichier `Slot.hpp` n'a pas a être inclus par l'utilisateur. Pour l'utilisateur 
 
 ## Connexion-émission-déconnexion d'un signal
 
-### à une fonction
+### • à une fonction
 
 ```cpp
 void f(int){ .... }
@@ -89,7 +89,7 @@ sig(57); // émission du signal
 sig.disconnect(f);
 ```
 
-### à une méthode
+### • à une méthode
 
 ```cpp
 class A {
@@ -112,7 +112,7 @@ sig.disconnect(&a, &A::m);
 sig.disconnect(&a);
 ```
 
-## Déconnecter tout un objet d'un signal.
+## Déconnecter un signal de tous les slots d'un objet donné
 
 ```cpp
 public:
@@ -129,10 +129,10 @@ A a(...);
 svl::Signal<int>  sig;
 sig.connect(&a, &A::m1);
 sig.connect(&a, &A::m2);
-sig.disconnect(&a); // déconnecte m1 et m2
+sig.disconnect(&a); // déconnecte a.m1 et a.m2
 ```
 
-## Déconnecter tous les slots d'un signal
+## Déconnecter un signal de tous ses slots
 
 ```cpp
 class A {
@@ -151,11 +151,11 @@ Signal<> sig;
 sig.connect(&a; &A::m);
 sig.connect(&f);
 sig.connect(&g);
-sig.disconnectAll(); // déconnecte toutes les connexions précédentes
+sig.disconnectAll(); // déconnecte les trois connexions f, g et a.m
 
 ```
 
-## Déconnecter tous les signaux connectés à un objet.
+## Déconnecter tous les signaux connectés à un objet
 
 Il faut le faire manuellement, à moins que l'objet en question ne dérive de la classe `Object`. Dans ce cas, à la destruction de
 l'objet, tous les signaux qui lui sont connectés seront déconnectés automatiquement.

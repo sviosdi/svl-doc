@@ -201,7 +201,7 @@ const config = {
           },
           { to: "/blog", label: "Blog", position: "left" },
           {
-            href: "https://gitlab.com/sviosdi/signals_slots",
+            href: "https://gitlab.com/savvylite",
             label: "GitLab",
             position: "right",
           },

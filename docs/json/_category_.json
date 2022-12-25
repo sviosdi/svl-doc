@@ -1,0 +1,8 @@
+{
+    "label": "liteJSON",
+    "position": 3,
+    "link": {
+        "type": "generated-index",
+        "description": "Utilisation du parser de chaîne texte au format JSON."
+    }
+}

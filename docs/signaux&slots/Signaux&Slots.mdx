@@ -272,15 +272,19 @@ void operator()(Params... params) {
 Observons maintenant plus précisément le fonctionnement d'une connexion d'un signal à une méthode :
 
 ```cpp
-template <typename OBJ_APPELE, typename RT>
-void connect(OBJ_APPELE * obj_appele, RT(OBJ_APPELE::* methode )(Params...)) {
+ template <typename OBJ_APPELE, typename RT>
+  void connect(OBJ_APPELE *obj_appele, RT (OBJ_APPELE::*methode)(Params...)) {
+    SlotKey key(reinterpret_cast<void *>(obj_appele),
+                reinterpret_cast<char *>(&methode));
+    if (connectedSlots.count(key))
+      return;
     SlotMethode<OBJ_APPELE, RT, Params...> slot;
-    SlotKey key(reinterpret_cast<void*>(obj_appele), reinterpret_cast<char*>(&methode));
-    connectedSlots[key] = slot;
-    if(std::is_base_of<Object, OBJ_APPELE>::value){
-         ((Object*)obj_appele)->addSignal(this);
+    if (std::is_base_of<Object, OBJ_APPELE>::value) {
+      ((Object *)obj_appele)->addSignal(this);
+      slot.isObject = true;
     }
-}
+    connectedSlots[key] = slot;
+  }
 ```
 
 Imaginons la connexion d'un objet `a` , instance d'une classe `A` , à une méthode `A::m(int, const char*)`.<br/>
@@ -288,15 +292,17 @@ La connexion se fait ainsi : `a.connect(&a, &A::m)`<br/>
 On voit apparaître les quatre étapes suivantes :
 
 1. Les types OBJ_APPELE, RT et Params sont déduits des paramètres passés à la connexion.
-2. On construit un `SlotMethode` sans aucun argument : c'est une sorte de coquille vide, mais qui récupère tous les types
-   énoncés précédemment.
-3. On crée un `SlotKey` qui par contre lui va récupérer les données et les anonymiser.
-4. On enregistre dans le signal (dans son map `connectedSlots`) la paire `SlotKey` ➞ `SlotMethode`. Et on peut le faire, car un
+2. On crée un `SlotKey` qui va récupérer les données et les anonymiser. S'il est déjà présent, c'est que le signal à déjà été connecté
+   à ce slot, on ignore alors la connexion en retournant sans rien faire.
+3. On construit un `SlotMethode` sans aucun argument : c'est une sorte de coquille vide, mais qui récupère tous les types
+   énoncés au point 1.
+4. On teste ensuite si l'objet connecté est une instance d'une classe dérivée de la classe `svl::Object` et si c'est le cas, on ajoute le signal au
+   conteneur des signaux de l'objet par la méthode `Object::addSignal()` ce qui permettra, en cas de destruction de l'objet, de déconnecter _ce_
+   signal et de la même façon _tous_ les signaux qui lui sont connectés. On marque ce slot comme étant un slot méthode d'un objet dérivant de la classe
+   `Object`.
+5. On enregistre dans le signal (dans son map `connectedSlots`) la paire `SlotKey` ➞ `SlotMethode`. Et on peut le faire, car un
    `SlotMethode` **est un** `Slot` et on n'a pas besoin d'avoir de pointeurs de slots ou de références de slots pour faire fonctionner
    le polymorphisme, car la seule méthode utilisée dans les slots est l'operateur d'appel `()` qui est une méthode propre à la classe de base.
-5. On teste ensuite si l'objet connecté est une instance d'une classe dérivée de la classe `svl::Object` et si c'est le cas, on ajoute le signal au
-   conteneur des signaux de l'objet par la méthode `Object::addSignal()` ce qui permettra, en cas de destruction de l'objet, de déconnecter _ce_
-   signal et de la même façon _tous_ les signaux qui lui sont connectés.
 
 ## Déconnexion d'un signal
 
@@ -304,17 +310,22 @@ Prenons l'exemple d'une déconnexion d'une méthode : `a->disconnect(&a, &A:m)` 
 
 ```cpp
 template <typename OBJ_APPELE, typename RT>
-void disconnect(OBJ_APPELE* obj_appele, RT(OBJ_APPELE::* methode )(Params...)) {
-    SlotKey key(reinterpret_cast<void*>(obj_appele), reinterpret_cast<char*>(&methode));
-    connectedSlots.erase(key);
-    if(std::is_base_of<Object, OBJ_APPELE>::value){
-        ((Object*)obj_appele)->removeSignal(this);
+  void disconnect(OBJ_APPELE *obj_appele,
+                  RT (OBJ_APPELE::*methode)(Params...)) {
+    SlotKey key(reinterpret_cast<void *>(obj_appele),
+                reinterpret_cast<char *>(&methode));
+    if (connectedSlots.count(key))
+      connectedSlots.erase(key);
+    if (std::is_base_of<Object, OBJ_APPELE>::value) {
+      ((Object *)obj_appele)->removeOneSignal(this);
     }
-}
+  }
 ```
 
 On reconstruit un SlotKey à partir des paramètres de déconnexion, puis il ne reste plus qu'à retirer ce SlotKey du map `connectedSlots`, ce
-qui peut s'exécuter très rapidement.
+qui peut s'exécuter très rapidement.<br/>
+Si l'object connecté dérive de la classe `Object` on ajoute le signal à la liste des signaux qui lui sont connnectés. Et ce une seule fois car le signal
+doit apparaître dans la liste autant de fois qu'il y a de méthodes de l'objet connectées à ce signal.
 
 On notera ici que la classe `Signal` dérive de la classe `SaSSignal`.
 
@@ -333,16 +344,20 @@ public:
 Cette classe n'a qu'une méthode `disconnect()` virtuelle pure _réécrite_ (`override`) dans la classe `Signal`.
 
 ```cpp
-void disconnect(void* obj_an) override {
-    typename std::map<SlotKey, Slot<Params...>>::iterator itr = connectedSlots.begin();
+template <typename OBJ_APPELE> void disconnect(OBJ_APPELE *obj) {
+    typename std::map<SlotKey, Slot<Params...>>::iterator itr =
+        connectedSlots.begin();
     while (itr != connectedSlots.end()) {
-        if (itr->first.obj_anonyme == obj_an) {
-            itr = connectedSlots.erase(itr);
-        } else {
-            ++itr;
-        }
+      if (itr->first.obj_anonyme == obj) {
+        itr = connectedSlots.erase(itr);
+      } else {
+        ++itr;
+      }
     }
-}
+    if (std::is_base_of<Object, OBJ_APPELE>::value) {
+      ((Object *)obj)->removeAllSignals(this);
+    }
+  }
 ```
 
 L'utilisateur pourra manuellement utiliser cette fonction sur un signal pour déconnecter ce signal de toutes les méthodes de l'objet passé
@@ -354,10 +369,11 @@ tous ces signaux, sans quoi, l'émission de l'un deux **après** la destruction 
 Et ceci est fait dans le destructeur de la classe `Object` :
 
 ```cpp
-Object::~Object() {
-  for(svl::SaSSignal* signal : connectedSignals) {
-      signal->disconnect(this);
-    }
+Object::~Object() { deleteConnectedSignals(); }
+void Object::deleteConnectedSignals() {
+  for (SaSSignal *signal : connectedSignals) {
+    signal->disconnect(this);
+  }
 }
 ```
 
@@ -394,13 +410,13 @@ On veillera à ce que :
    - Ne rien faire si le slot est déjà présent dans `connectedSlots`
    - Si le slot se rattache à un objet dérivant de la classe `Object`:
      - Marquer ce slot avec `isObject = true` [→ voir NOTE 1](#note_1)
-     - Ajouter le signal à `connectedSignals` **même s'il est déjà présent**. (important!) [→ voir NOTE 2](#note_2)
+     - Ajouter le signal à `connectedSignals` **même s'il est déjà présent**.
    - Ajouter le slot à `connectedSlots`
 
 3. À la déconnexion d'un slot : `signal.disconnect(&a, &A::m)`
 
    - Si le slot est bien présent dans `connectedSlots` on le retire.
-   - On retire le signal de `connectedSignals`, _une seule fois_! (important!) [→ voir NOTE 2](#note_2)
+   - On retire le signal de `connectedSignals`, _une seule fois_! (important!)
 
 4. Pour déconnecter un signal donné d'un objet `signal.disconnect(&a)` :
 
@@ -416,12 +432,6 @@ On veillera à ce que :
 
 7. Si un objet derive de la classe Objet pour le déconnecter de tous les signaux qui lui sont connectés : `a.deleteConnectedSignals()`
    - Pour chacun des signaux dans `connectedSignals` : déconnecter l'objet du signal en appliquant 4.
-
-#### {#note_1}
-
-:::note note 2
-Pour ce dernier point, il n'est pas nécessaire de
-:::
 
 :::caution
 Un problème survient dans le cas où un signal est un membre d'une classe et qu'il est connecté à une méthode cette même classe. Observons plus bas

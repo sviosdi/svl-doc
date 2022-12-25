@@ -1,3 +1,188 @@
 ---
 sidebar_position: 4
+description: parseur JSON
+title: "Utilisation de liteJSON"
+sidebar_label: Utilisation
 ---
+
+#include ["json.h"](https://gitlab.com/savvylite/litejson/-/blob/main/json.h)<br />
+
+## Modélisation
+
+Les sept valeurs du format JSON sont : _object_, _array_, _string_, _number_, _"true"_, _"false"_ et _"null"_.<br/>
+Elles sont modélisées respectivement par les classes
+`JsonObject`, `JsonArray`, `JsonString`, `JsonNumber`, `JsonTrue`, `JsonFalse` et `JsonNull`.<br/>
+Ces classes dérivent toutes de la classe abstraite `JsonValue` et implémentent toutes les fonctions virtuelles pures suivantes :
+
+```cpp
+class JsonValue {
+ public:
+  virtual JsonType type() const = 0;
+  virtual std::string stringify() const = 0;
+  virtual std::string prettyStringify(int ident = 0) const = 0;
+  virtual bool equals(const JsonValue* other) const = 0;
+
+  ....
+
+};
+```
+
+## Le parser
+
+- La fonction statique `JSON::parse()`
+
+Cette fonction prend pour paramètre une chaîne `std::string` qui donne une représentation au format texte d'une valeur JSON qui n'est
+pas nécessairement un objet mais peut être une quleconque des sept valeurs du format.<br/>
+Elle retourne un pointeur de type `JsonValue*` sur la valeur parsée correspondante.
+
+```cpp
+  string toParse =
+      R"({"projet":"liteJSON", "stars":5, "version":"1.0.0",
+ "tested":false, "tags":["cpp", "stl", "json","parser"]})";
+  JsonValue* v = JSON::parse(toParse);
+  if (v) {
+    v->setOutput(Output::bash);
+    cout << v->stringify() << endl;
+    delete v;
+  }
+```
+
+## Principales méthodes communes
+
+### `type()`
+
+`virtual JsonType type() const = 0;`
+
+Les septs types retournés par la fonction `JsonType type()` correspondent respectivement aux classes précédentes :
+
+```bash
+  JsonType::object
+  JsonType::array
+  JsonType::string
+  JsonType::number
+  JsonType::ok (instance de JsonTrue)
+  JsonType::ko (instance de JsonFalse)
+  JsonType::null
+```
+
+### `stringify()`
+
+- `virtual std::string stringify() const = 0;`
+
+Cette fonction retourne la représentation en texte JSON de la valeur, sans aucune mise en forme, passage à la ligne, indentation...
+mais qui respecte le format JSON et peut être sauvegardée au format texte puis récupérée et parsée sans erreurs.
+
+Par exemple:
+
+```text
+{"projet":"liteJSON","stars":5,"tags":["cpp","stl","json","parser"],"tested":false,"version":"1.0.0"}
+```
+
+### `prettyStringify()`
+
+- `virtual std::string prettyStringify(int ident = 0) const = 0;`
+
+Cette fonction retourne une chaîne qui permet d'afficher la valeur sous forme beaucoup plus lisible mais qui ne pourrait pas être parsée.
+La coloration peut être ajoutée sous le bash de linux :
+
+```cpp
+value->setOutput(TypeOutput::bash)
+```
+
+Sinon par défaut c'est une mise en forme sans coloration `TypeOutput::simple` qui est appliquée.
+
+Par exemple:
+
+![prettyStringify](/img/pretty.png)
+
+## Accès et exploitation des champs particuliers d'une valeur.
+
+Les trois premières fonctions suivantes déclenchent une exception si elles sont appliquées à des valeurs qui ne sont pas
+du type attendu.
+
+### `vstring()`
+
+- `std::string& vstring();`
+
+Retourne pour une valeur de type JsonString, la chaîne `std::string` correspondante.
+
+### `vnumber()`
+
+- `double vnumber();`
+
+Retourne pour une valeur de type JsonNumber, le nombre de type `double` correspondant.
+
+### `vbool()`
+
+- `bool vbool();`
+
+Retourne pour une valeur de type booléenne `JsonTrue` ou `JsonFalse`, la valeur de type `bool` correspondante.
+
+### `isNull()`
+
+- `bool isNull();`
+
+Retourne pour toute valeur : `true` si la valeur est de type `JsonNull`, `false` sinon.
+
+### opérateurs \[ _"key"_ \] et \[ _index_ \]
+
+Ces opérateurs permettent d'accéder respectivement à un champ _key_ d'une valeur de type `JsonObject` ou à l'élément d'indice
+_index_ d'une valeur de type `JsonArray`.<br/> Une exception est déclenchée si le champ n'existe pas ou si l'indice n'est pas correct.
+
+:::caution
+La valeur obtenue n'est pas une `JsonValue*`. Elle permet par contre de parcourir récursivement une valeur ou bien on peut exploiter
+cette valeur obtenue par les méthodes décrites plus haut et encore comme montré dans l'exemple suivant.
+
+Ces opérateurs doivent s'appliquer sur une valeur déréférencée (pas sur le pointeur) mise entre parenthèses ou bien récursivement sur une valeur
+retournée par un de ces opérateurs.
+:::
+
+Exemple :
+
+```cpp
+#include <iostream>
+
+#include "json.h"
+using std::cout;
+using std::endl;
+using std::string;
+using namespace sl;
+
+int main() {
+  setlocale(LC_CTYPE, "");
+
+  string toParse =
+      R"({"projet":"liteJSON", "stars":3, "version":"1.0.0", "tested":false,
+        "tags":["cpp", "stl", "json","parser"]})";
+
+  // string toParse = (R"(true)");
+  JsonValue* v = JSON::parse(toParse);
+  cout << v->prettyStringify() << endl;
+  if (v) {
+    v->setOutput(Output::bash);
+    auto stars = (*v)["stars"];
+    if (stars.type() == JsonType::number) {
+      stars =
+          stars.vnumber() + 1;  // accès puis modification de la valeur :
+                                // (*v)["stars"] = (*v)["stars"].vnumber() + 1;
+    }
+    auto stl = (*v)["tags"][1];
+    stl = stl.vstring() + "_Standard_Template_Library";
+    // Pour une valeur booléenne utiliser :
+    // = JsonType::ok pour true, et = JsonType::ko pour false
+    // équivalent à = new JsonTrue()
+    // Utiliser JsonType::null pour marquer une valeur comme null
+    (*v)["tested"] = JsonType::ok;
+    // La valeur associée de type string peut être écrasée par une
+    //  valeur d'un type entièrement différent (un objet ici)
+    (*v)["version"] = JSON::parse(R"({"major":"1", "minor":"0.0"})");
+    (*v)["tags"][3] = JsonType::null;
+    cout << v->prettyStringify() << endl;
+    delete v;
+  }
+
+  return 0;
+}
+```
+
+![modifs](/img/json_modifs.png)

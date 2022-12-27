@@ -1,0 +1,101 @@
+---
+sidebar_position: 1
+description: parseur de règles
+title: "RulesParser"
+sidebar_label: Utilisation de RulesParser
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+## Transcription d'une grammaire
+
+On cherche à transcrire une chaîne texte contenant les règles d'une _grammaire_ en des fonctions écrites en C++ qui permettront,
+après compilation, de tester la validité d'expressions pour cette grammaire.
+Considérons cet exemple de grammaire :
+
+```cpp
+string test_grammar = R"(
+   operande: one of
+            a b
+
+   operator: one of
+           + *
+
+   exp:
+     operande
+     operande operator operande
+     exp operator ( exp )
+     exp operator exp
+
+)";
+```
+
+:::caution
+Chaque règle doit être terminée par un saut de ligne. (ligne vierge)
+:::
+
+Voici des expressions valides ou non valides pour cette grammaire :
+
+<Tabs>
+  <TabItem value="gvalide" label="Expressions valides" default>
+    <ul>
+      <li>
+        <span className="gvalide">a</span>
+      </li>
+      <li>
+        <span className="gvalide">b</span>
+      </li>
+      <li>
+        <span className="gvalide">a+b</span>
+      </li>
+      <li>
+        <span className="gvalide">a*b</span>
+      </li>
+      <li>
+        <span className="gvalide">b*(b+a)</span>
+      </li>
+      <li>
+        <span className="gvalide">a+a*b*(b+(b*a))+a</span>
+      </li>
+    </ul>
+  </TabItem>
+  <TabItem value="gnovalide" label="Expressions non valides">
+    <ul>
+      <li>
+        <span className="gnvalide">c</span>
+      </li>
+      <li>
+        <span className="gvalide">a</span>
+        <span className="gnvalide">+c</span>
+      </li>
+      <li>
+        <span className="gvalide">a+b</span>
+        <span className="gnvalide">*(b+c)*b</span>
+      </li>
+      <li>
+        <span className="gvalide">a+b*(b+a)</span>
+        <span className="gnvalide">*c</span>
+      </li>
+      <li>
+        <span className="gnvalide">(a+b)*c</span>
+      </li>
+      <li>
+        <span className="gvalide">a</span>
+        <span className="gnvalide"> + b</span>
+      </li>
+    </ul>
+  </TabItem>
+</Tabs>
+
+La règle ne précisant pas qu'il faut ignorer les _whitespaces_, on voit comme dans le dernier exemple qu'une expression qui
+pourrait paraître valide ne l'est pas si les opérandes ou opérateurs sont entourés d'espaces.
+
+On voit qu'une expression mếme globalement non valide est parsée jusqu'à ce qu'on puisse en extraire une partie valide.
+
+On initialise le parser avec la grammaire et on lance le parsage :
+
+```cpp
+RulesParser parser(test_grammar);
+parser.parse();
+```

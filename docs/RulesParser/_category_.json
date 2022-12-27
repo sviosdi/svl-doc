@@ -1,0 +1,8 @@
+{
+    "label": "RulesParser",
+    "position": 4,
+    "link": {
+        "type": "generated-index",
+        "description": "Utilisation du parser de règles."
+    }
+}

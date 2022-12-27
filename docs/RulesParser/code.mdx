@@ -1,0 +1,144 @@
+---
+description: RulesParser
+title: "Code de RulesParser"
+sidebar_position: 2
+keywords:
+  - grammar
+  - rules
+  - parser
+sidebar_label: RulesParser
+sidebar_class_name: dev-icon
+---
+
+## Analyse de la grammaire et génération du code
+
+### La classe `RulesParser`
+
+En plus des classiques membres ou fonctions nécessaires pour parser : `at`, `ch`, `next()`, `isWS()`, `ws()` la classe `RulesParser`
+dispose des membres :
+
+```cpp
+std::map<std::string, Rule> rules_names_map;
+std::vector<Rule> rules_vect;
+```
+
+Prenons pour exemple la grammaire suivante :
+
+```text
+ operande: one of
+            a b
+
+   operator: one of
+           + *
+
+   exp:
+     operande
+     operande operator operande
+     exp operator ( exp )
+     exp operator exp
+
+```
+
+Une fois la grammaire parsée par :
+
+```cpp
+RulesParser parser(test_grammar);
+parser.parse();
+```
+
+Le parser maintiendra en mémoire une organisation décrite par le schéma suivant :
+
+![résultat parsage](/img/pars_result.png)
+
+`parser.getAllRules()` retourne une référence vers le vecteur `rules_vect` qui contient chacune des règles de la grammaire traduites en un type `Rule`.
+
+A ce stade du développement les règles sont partagées en deux catégories :
+
+- Les règles qui vérifient `Rule.isOneOf() === true` (on les dira de type _isOneOf_) : <br/>Elles définissent des 'mots' réservés, des keywords, des caractères particuliers... Une telle
+  règle étant vérifiée quand l'un des 'mots' ou 'caractères' (qu'on appellera des `specials`) est présent à l'emplacement du caractère courant de parsage.
+- Les règles qui vérifient `Rule.isOneOf() === false` : <br/>Elles sont définies par plusieurs lignes de règles. Chaque ligne est de type `RuleLine` qui contient un vector `items`
+  de `strings` où chaque item peut être ou le nom d'une règle déjà définie (et très souvent pour récursion le nom de la règle courante elle même) ou dans le cas contraire ce sera un `special` :
+  un mot réservé, une parenthèse, un crochet, un caractère particulier...etc. Chaque `RuleLine` est un élément du vector `rules` membre de la règle.
+
+## Le code généré et son utilisation.
+
+### Transcription des règles en code.
+
+:::note
+Le code indiqué ci-dessous est le **code généré** par le parser de grammaire. La classe `Parser` ci-dessous n'intervient pas dans la phase d'analyse des règles et de génération du code (c'est le rôle de `RulesParser`), mais
+dans la phase d'utilisation du code généré puis compilé pour tester la validité d'expressions.
+:::
+
+Chaque règle est traduite en code par une méthode de la classe `Parser` dont le nom commence par `rl_` suivi du nom de la règle.<br/>
+Ainsi la règle `operande` sera traduite par la règle : `ParsedNode Parser::rl_operande()`.<br/>
+Une expression (de type `std::string`) sera ainsi globalement testée pour notre grammaire par la fonction `Parser::rl_exp()` qui retourne un `ParsedNode`.
+
+```cpp
+std::string toParse{"a+b*a*(b+a)*c"}
+Parser parser(toParse);
+ParsedNode node = parser.rl_exp();
+cout << toparse << ": " << std::boolalpha << node.ok << (node.ok ? ": " + node.value : ": syntax error");
+cout << endl;
+```
+
+L'exécution du code précédent donnera :
+
+```javascript
+a+b*a*(b+a)*c: true: a+b*a*(b+a)
+```
+
+### Noeud de parsage `ParsedNode`
+
+Un noeud de parsage `ParsedNode` retourné par les fonctions de parsage `rl_....` est défini ainsi :
+
+```cpp
+class ParsedNode {
+public:
+  ParsedNode(ParserData& parser, std::string kind);
+  bool ok;
+  std::string value;
+  size_t begin;
+  size_t end;
+  std::string kind;
+  prs_error error;
+  ParserData& parser;
+  bool exit;
+  std::vector<ParsedNode> children;
+  ParsedNode& close(bool ok, bool exit=false);
+};
+```
+
+- `ok` à `true` indique que la fonction de parsage a correctement parsé autrement dit qu'elle a pu progresser d'un certain nombre (non nul)
+  de caractères qui respectent la règle qu'elle représente.<br/>`ok` à `false` indique donc que le parsage n'a pas du tout pu progresser.
+- `value` : la chaîne qui a pu être correctement parsée.
+- begin: la position du caractère courant à l'entrée dans la fonction de parsage.
+- `end` : la position du caractère courant à la sortie de la fonction de parsage.<br/>
+  &nbsp;&nbsp;&nbsp;&nbsp;Si value = "Vincent" .... 51 52 [V 53] [i 54] .......[t 59] 60 61 ... alors `begin` = 53 et `end` = 60.
+- `kind` : le nom de la règle de grammaire utilisée (i.e. le nom de la règle sans `rl_`).
+- `error`: représente l'erreur lorsque `ok` == `false`.
+- `parser` : une référence vers le parser.
+- `exit` : indique s'il doit y avoir interruption ou non lorsque `ok` == `false`.
+- `children` : les noeuds résultats des lignes de règles qui définissent la fonction de parsage courante.
+
+```cpp
+ParsedNode Parser::rl_operande() {
+  ParsedNode node(*this, "operande");
+  vector<string> specials{ "a", "b" };
+  string special{};
+  for(const auto& w : specials) {
+    if(isThere(w)) {
+      if(w.size() > special.size()) special = w;
+    }
+  }
+  if(!special.empty()) {
+    at += special.size();
+    ch = unit[at - 1];
+    node.value = special;
+    return node.close(true);
+} else {
+    node.error.code = prs_error_code::bad_words;
+    node.error.words = specials;
+    return node.close(false, true);
+  }
+}
+```

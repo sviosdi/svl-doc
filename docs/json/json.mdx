@@ -2,7 +2,7 @@
 sidebar_position: 4
 description: parseur JSON
 title: "Utilisation de liteJSON"
-sidebar_label: Utilisation
+sidebar_label: Utilisation de liteJSON
 ---
 
 #include ["json.h"](https://gitlab.com/savvylite/litejson/-/blob/main/json.h)<br />
@@ -155,7 +155,6 @@ int main() {
       R"({"projet":"liteJSON", "stars":3, "version":"1.0.0", "tested":false,
         "tags":["cpp", "stl", "json","parser"]})";
 
-  // string toParse = (R"(true)");
   JsonValue* v = JSON::parse(toParse);
   cout << v->prettyStringify() << endl;
   if (v) {

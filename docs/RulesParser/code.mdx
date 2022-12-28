@@ -119,26 +119,152 @@ public:
 - `parser` : une référence vers le parser.
 - `exit` : indique s'il doit y avoir interruption ou non lorsque `ok` == `false`.
 - `children` : les noeuds résultats des lignes de règles qui définissent la fonction de parsage courante.
+- `close()` est une méthode qui intervient en fin de parsage de la règle. (explications plus loin)
+
+L'état de la mémoire après avoir effectué le code suivant :
 
 ```cpp
-ParsedNode Parser::rl_operande() {
-  ParsedNode node(*this, "operande");
-  vector<string> specials{ "a", "b" };
-  string special{};
-  for(const auto& w : specials) {
-    if(isThere(w)) {
-      if(w.size() > special.size()) special = w;
-    }
-  }
-  if(!special.empty()) {
-    at += special.size();
-    ch = unit[at - 1];
-    node.value = special;
-    return node.close(true);
-} else {
-    node.error.code = prs_error_code::bad_words;
-    node.error.words = specials;
-    return node.close(false, true);
-  }
-}
+std::string toParse{"a+b-c"}
+Parser parser(toParse);
+ParsedNode node = parser.rl_exp();
 ```
+
+est :
+
+```javascript
+	Variables locales
+		node	@0x7fffffffe320	ParsedNode
+			begin	0	size_t
+			children	<3 éléments>	std::vector<ParsedNode, std::allocator<ParsedNode> >
+				[0]	@0x555555579540	ParsedNode
+					begin	0	size_t
+					children	<0 élément>	std::vector<ParsedNode, std::allocator<ParsedNode> >
+					end	1	size_t
+					error	@0x555555579598	prs_error
+					exit	false	bool
+					kind	"operande"	std::string
+					ok	true	bool
+					parser	@0x5555555795b8	ParserData &
+					value	"a"	std::string
+				[1]	@0x5555555795e0	ParsedNode
+					begin	1	size_t
+					children	<0 élément>	std::vector<ParsedNode, std::allocator<ParsedNode> >
+					end	2	size_t
+					error	@0x555555579638	prs_error
+					exit	false	bool
+					kind	"operator"	std::string
+					ok	true	bool
+					parser	@0x555555579658	ParserData &
+					value	"+"	std::string
+				[2]	@0x555555579680	ParsedNode
+					begin	2	size_t
+					children	<0 élément>	std::vector<ParsedNode, std::allocator<ParsedNode> >
+					end	3	size_t
+					error	@0x5555555796d8	prs_error
+					exit	false	bool
+					kind	"operande"	std::string
+					ok	true	bool
+					parser	@0x5555555796f8	ParserData &
+					value	"b"	std::string
+			end	3	size_t
+			error	@0x7fffffffe378	prs_error
+			exit	false	bool
+			kind	"exp"	std::string
+			ok	true	bool
+			parser	@0x7fffffffe2d0	ParserData &
+			value	"a+b"	std::string
+		parser	@0x7fffffffe2d0	Parser
+			[ParserData]	@0x7fffffffe2d0	ParserData
+		toparse	"a+b-c"	std::string
+```
+
+### Le parser - classe `ParserData`
+
+Le parser dérive de la classe `ParserData`.
+
+```cpp
+struct ParserData {
+  ParserData(std::string s) : unit{s}, at{0}, ch{1} {}
+  std::string unit;
+  size_t at;
+  char ch;
+  Ns::Array_stack<size_t> ats_stack;
+  char next();
+  bool isWS(char c);
+  void ws();
+  void save();
+  void restore();
+  void unsave();
+  bool isThere(std::string word);
+};
+```
+
+- `unit` : l'unité à parser
+- `at` : la position du caractère qui suit le caractère courant
+- `ch` : le caractère courant (une position avant `at`) initialisé à une valeur quelconque différente de `'\0'` (=`0`)
+- `ats_stack` : la pile des positions de `at` à l'entrée dans une fonction de parsage.
+- `next()` : incrémente `at` d'une unité et retourne le caractère suivant le caractère courant actuel qui devient le nouveau caractère courant.<br/>
+  Sans effet si `ch` est le caractère de fin de chaîne (0)
+- `isWS(c`) : retourne true si `c` est un whitespace `' '`, `'\t'`, `'\n'`, `'\r'`.
+- `ws()` : avance le caractère courant jusqu'au prochain caractère qui n'est pas un whitespace.<br/>Sans aucun effet si le caractère courant n'est pas
+  lui-même un whitespace ou si on est en fin de chaîne à parser (`ch` = `0`)
+- `save()` : sauvegarde la position de `at` sur la pile des positions
+- `restore()` : récupère la dernière position de `at` sur la pile et ajuste `ch` en fonction
+- `unsave()` : efface la dernière position de `at` sauvegardée sur la pile sans affecter `at`
+- `isThere(word)` : vérifie si le mot|caractère _word_ est présent à la position courante sans modifier ni `at` ni `ch`.
+  <br />
+  La position courante est inchangée.
+
+### Le parser - classe `Parser`
+
+```cpp
+struct Parser : public ParserData {
+  Parser(std::string unit) : ParserData(unit) { next(); }
+  ParsedNode rl_operande();
+  ParsedNode rl_operator();
+  ParsedNode rl_exp();
+  ParsedNode term_(std::string term);
+  bool applyRule(ParsedNode& parent, ParsedNode(Parser::*rule)());
+  bool applyRule(ParsedNode& parent, std::string term);
+};
+```
+
+Le parser contient les trois fonctions de parsage générées par `RulesParser`.
+
+### Principe de parsage
+
+Chaque règle vérifiée retourne un noeud de parsage avec `ok` = `true`
+
+Pour parser la règle exp :
+
+```text
+  exp:
+     operande
+     operande operator operande
+     exp operator ( exp )
+     exp operator exp
+
+```
+
+:::caution
+Les lignes (`RuleLine`s 3 et 4, commencent toutes deux par la règle `exp` qui est la règle en cours de test : on dira qu'elles sont récursives
+sur la gauche. Dans ce cas, pour ne pas créer une boucle infini, on procèdera ainsi :
+
+- Si l'une des lignes précédentes n'est pas validée, alors `exp` ne peut pas être validée est on marquera le noeud retourné avec `ok` = false.
+- Sinon c'est que `exp` est vérifiée et on passera sa vérification en commençant la vérification à l'item suivant `operator` après avoir ajusté `ch` et `at`
+  en conséquence.
+
+:::
+
+- Il y a quatre `RuleLine`s qu'il faut parser dans l'ordre et retenir le dernier noeud valide retourné par chacune d'elle.
+  On prépare pour cela un tableau `parents` de quatre noeuds initialisés avec `kind` = "exp" et `begin` = position du caractère courant et
+  un pointeur `good_node` qui pointera progressivement vers le dernier noeud valide.
+
+- Pour chaque ligne :
+
+  - on initialise un tableau correspondant aux items de la ligne où pour chaque item qui est une règle on lui fait correspondre
+    un pointeur vers cette règle et si l'item est un `special` (i.e. un `terminal`) on lui fera correspondre `nullptr`. Ce qui donne par exemple
+    pour la ligne 3 :<br/> `ParseFunction items_3[5]{&Parser::rl_exp, &Parser::rl_operator, nullptr,&Parser::rl_exp, nullptr}`
+
+  - on parse la ligne en utilisant les fonctions du tableau précédent qui si elles sont correctement parsées fourniront un noeux avec `ok` = true
+    qui sera ajouté aux children du parent, ce dernier étant la règle en cours de parsage, autrement dit le noeud parents[i-1] correspondant à la i-ème ligne en cours de parsage.
